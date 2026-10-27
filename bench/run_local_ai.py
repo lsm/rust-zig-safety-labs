@@ -34,7 +34,7 @@ SYSTEMS = {
         "An unrelated syntax example: "
         "pub fn length_only(input: []const u8) u64 { return @as(u64, @intCast(input.len)); } "
         "Follow the safe-subset contract strictly: NEVER write input[i], direct heap ops, "
-        "or direct thread spawning. Import trusted API exactly as @import(\\"core.zig\\"); "
+        "or direct thread spawning. Import trusted API exactly as @import(\"core.zig\"); "
         "Use core.readAt(input, i) orelse 0 for indexed reads and core functions for "
         "copying and parallelism. Looping with for(input) |byte| is also allowed. "
         "Implement pub fn solve, output code only."),
