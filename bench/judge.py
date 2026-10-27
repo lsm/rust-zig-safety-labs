@@ -7,6 +7,7 @@ Structural concurrency/allocation checks are explicitly heuristics.
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import re
 import shutil
 import subprocess
@@ -116,12 +117,21 @@ def _judge_rust(vectors: list[tuple[list[int], int]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def stripped_env() -> dict[str, str]:
+    # Never forward API tokens, Actions runtime tokens or other CI credentials
+    # into compiler and test subprocesses, which execute untrusted model code.
+    allowed = {"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "USER", "TERM",
+               "XDG_CACHE_HOME", "ZIG_GLOBAL_CACHE_DIR"}
+    return {k: v for k, v in os.environ.items() if k in allowed}
+
+
 def command(argv: list[str], cwd: Path, timeout: int = 80) -> dict:
     executable = argv[0]
     if shutil.which(executable) is None:
         return {"kind": "NOT_RUN", "message": f"Tool not installed: {executable}"}
     try:
-        p = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run(argv, cwd=cwd, capture_output=True, text=True,
+                           env=stripped_env(), timeout=timeout)
         return {
             "kind": "OK" if p.returncode == 0 else "FAILED",
             "exit_code": p.returncode,
@@ -172,7 +182,8 @@ def evaluate(mode: str, task_id: str, code: str, work: Path, *,
     # Absolute path because command() deliberately resolves executables through shutil.which.
     binary = work.resolve() / "judge-bin"
     try:
-        out = subprocess.run([str(binary), "--quiet"], cwd=work, capture_output=True, text=True, timeout=35)
+        out = subprocess.run([str(binary), "--quiet"], cwd=work, capture_output=True,
+                             text=True, env=stripped_env(), timeout=35)
         status = "PASS" if out.returncode == 0 else "TEST_FAILED"
         return {**result, "status": status, "build": built, "test_exit_code": out.returncode,
                 "test_log_tail": ((out.stdout or "") + "\n" + (out.stderr or ""))[-6500:]}

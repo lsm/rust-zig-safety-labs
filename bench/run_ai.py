@@ -148,7 +148,7 @@ def main() -> int:
         print(f"Study plan: {len(tasks)} tasks x {len(MODES)} arms x {a.trials} "
               f"repeats = {len(jobs)} planned independent generations. NO API calls.")
         return 0
-    key = os.environ.get("OPENAI_API_KEY")
+    key = os.environ.pop("OPENAI_API_KEY", None)
     if not key or not a.model:
         meta["status"] = "NOT_RUN_MISSING_KEY_OR_MODEL"
         write_results(meta, [])

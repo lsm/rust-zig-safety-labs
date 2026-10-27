@@ -27,12 +27,13 @@ jobs:
     timeout-minutes: 360
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       STUDY_MODEL: ${{ inputs.model }}
       STUDY_TRIALS: ${{ inputs.trials }}
       STUDY_MAX_REQUESTS: ${{ inputs.max_requests }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Install Zig 0.17.0
         uses: mlugg/setup-zig@v2
         with:
@@ -47,13 +48,9 @@ jobs:
           python3 bench/test_judge.py
           python3 bench/test_run_ai.py
           python3 bench/run_ai.py --dry-run
-      - name: Ensure secret is present before any billable calls
-        run: |
-          if [ -z "$OPENAI_API_KEY" ]; then
-            echo "::error::OPENAI_API_KEY secret is required to generate code."
-            exit 2
-          fi
       - name: Generate and evaluate AI solutions
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           python3 bench/run_ai.py --model "$STUDY_MODEL" \
             --trials "$STUDY_TRIALS" --max-requests "$STUDY_MAX_REQUESTS"

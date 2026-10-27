@@ -67,3 +67,14 @@ allocations and thread creation in candidates is a heuristic, not proof of
 runtime use. Candidate LOC excludes the Zig trusted core; review both sizes
 when comparing engineering effort. AI accuracy may only be reported after
 the manually triggered generation job has completed, with all 150 records.
+
+## Executing generated code is a security-sensitive activity
+
+Generated solutions are untrusted. The judge now strips all CI and API
+credentials from compiler/test subprocess environments, and checkout does
+not persist Git credentials. These safeguards reduce secret exposure, but
+are **not a hardened sandbox**: hostile code on the same runner may still
+escape the intended evaluation scope. Use isolated, short-lived runners,
+restricted API keys/billing limits and never run the generator with other
+sensitive credentials. A dedicated no-network execution container is
+recommended for stronger isolation before wider scale deployment.
