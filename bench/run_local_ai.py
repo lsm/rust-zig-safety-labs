@@ -22,11 +22,32 @@ from run_ai import code_only, compiler_feedback
 
 HERE = Path(__file__).resolve().parent
 HOST = "http://127.0.0.1:11434"
-SYSTEM = ("You are an expert systems developer. Produce just one complete source "
-          "file matching the exact function signature. No Markdown, no prose, "
-          "no external packages. Zig solutions must use Zig 0.17.0 syntax. "
-          "Keep code correct for empty inputs and edge cases.")
-MODEL_DEFAULT = "qwen2.5-coder:1.5b-instruct"
+SYSTEMS = {
+    "zig_plain": (
+        "LANGUAGE: ZIG 0.17.0 ONLY. Return Zig source, never Rust or C. "
+        "A minimal unrelated syntax example: "
+        "pub fn length_only(input: []const u8) u64 { return @as(u64, @intCast(input.len)); } "
+        "Implement the specified task using the requested pub fn solve signature. "
+        "Output code only, no Markdown."),
+    "zig_restricted": (
+        "LANGUAGE: ZIG 0.17.0 ONLY. Return Zig source, never Rust or C. "
+        "An unrelated syntax example: "
+        "pub fn length_only(input: []const u8) u64 { return @as(u64, @intCast(input.len)); } "
+        "Follow the safe-subset contract strictly: NEVER write input[i], direct heap ops, "
+        "or direct thread spawning. Import trusted API exactly as @import(\\"core.zig\\"); "
+        "Use core.readAt(input, i) orelse 0 for indexed reads and core functions for "
+        "copying and parallelism. Looping with for(input) |byte| is also allowed. "
+        "Implement pub fn solve, output code only."),
+    "rust_safe": (
+        "LANGUAGE: RUST 2021 ONLY. Return valid Rust code, never Zig or C. "
+        "An unrelated syntax example: "
+        "pub fn length_only(input: &[u8]) -> u64 { input.len() as u64 } "
+        "Use Rust let bindings, iterators, for item in input, and Rust type casts as needed. "
+        "Do NOT write @import, @as, var, catch, []const u8 or any Zig construct. "
+        "Implement pub fn solve using safe Rust only, output code only."),
+}
+
+MODEL_DEFAULT = "qwen2.5-coder:3b-instruct"
 
 
 def api(path: str, payload: dict | None = None, timeout: int = 240) -> dict:
@@ -46,14 +67,14 @@ def api(path: str, payload: dict | None = None, timeout: int = 240) -> dict:
     raise RuntimeError("Unreachable local model API")
 
 
-def complete(model: str, prompt: str, seed: int, max_tokens: int) -> dict:
+def complete(model: str, prompt: str, seed: int, max_tokens: int, system: str) -> dict:
     response = api("/api/chat", {
         "model": model,
-        "messages": [{"role": "system", "content": SYSTEM},
+        "messages": [{"role": "system", "content": system},
                      {"role": "user", "content": prompt}],
         "stream": False,
         "keep_alive": "20m",
-        "options": {"seed": seed, "temperature": 0.35, "top_p": 0.92,
+        "options": {"seed": seed, "temperature": 0.22, "top_p": 0.92,
                     "num_predict": max_tokens, "num_ctx": 4096},
     })
     output = response.get("message", {}).get("content", "")
@@ -89,7 +110,7 @@ def effective_status(verdict: dict) -> str:
 def repair_feedback(verdict: dict) -> str:
     status = effective_status(verdict)
     if status == "COMPILE_ERROR":
-        return compiler_feedback(verdict)
+        return compiler_feedback(verdict) + "\nUse only the exact requested language."
     if status == "POLICY_BLOCKED":
         return "Safe-subset policy violations:\n" + "\n".join(
             verdict.get("policy_issues", [])[:12])
@@ -168,8 +189,8 @@ def main() -> int:
     metadata = {
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "model_identity": {"name": args.model}, "backend": "ollama-local-cpu",
-        "generator_system_sha256": hashlib.sha256(SYSTEM.encode()).hexdigest(),
-        "temperature": 0.35, "top_p": 0.92, "ctx": 4096,
+        "generator_system_sha256": {arm: hashlib.sha256(SYSTEMS[arm].encode()).hexdigest() for arm in MODES},
+        "temperature": 0.22, "top_p": 0.92, "ctx": 4096,
         "max_output_tokens": args.max_tokens, "shard": args.shard,
         "shards": args.shards, "repeat_count": args.trials,
         "max_calls": args.max_calls, "call_count": 0,
@@ -194,6 +215,7 @@ def main() -> int:
         folder.mkdir(parents=True, exist_ok=True)
         suffix = ".rs" if arm == "rust_safe" else ".zig"
         (folder / "public_prompt.txt").write_text(prompt, encoding="utf-8")
+        (folder / "system_prompt.txt").write_text(SYSTEMS[arm], encoding="utf-8")
         row = {
             "task": name, "arm": arm, "repeat": rep, "seed": seed,
             "public_prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
@@ -205,7 +227,7 @@ def main() -> int:
                 rows.append(row)
                 continue
             metadata["call_count"] += 1
-            generation = complete(args.model, prompt, seed, args.max_tokens)
+            generation = complete(args.model, prompt, seed, args.max_tokens, SYSTEMS[arm])
             code = generation.pop("code")
             (folder / ("initial" + suffix)).write_text(code, encoding="utf-8")
             row["generation"] = generation
@@ -222,7 +244,7 @@ def main() -> int:
                                   feedback + "\nReturn only corrected complete source.")
                 metadata["call_count"] += 1
                 fixed = complete(args.model, revised_prompt, seed + 1000000 * attempt,
-                                 args.max_tokens)
+                                 args.max_tokens, SYSTEMS[arm])
                 code = fixed.pop("code")
                 (folder / (f"repair{attempt}" + suffix)).write_text(code, encoding="utf-8")
                 row.setdefault("repair_generations", []).append(fixed)
