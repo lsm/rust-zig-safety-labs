@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """No compiler needed for judge plan/unit tests."""
 import unittest
-from judge import public_prompt, structural_evidence, metrics, task_by_id, _judge_zig, _judge_rust, _vectors
+import os
+from unittest.mock import patch
+from judge import public_prompt, structural_evidence, metrics, task_by_id, _judge_zig, _judge_rust, _vectors, stripped_env
 
 
 class JudgeUnitTests(unittest.TestCase):
@@ -30,6 +32,19 @@ class JudgeUnitTests(unittest.TestCase):
         self.assertFalse(structural_evidence(
             "parallel_partition_sum", "rust_safe",
             "return input.iter().map(|x| *x as u64).sum();")["observed"])
+
+    def test_candidate_subprocess_does_not_receive_secrets(self):
+        with patch.dict(os.environ, {
+            "OPENAI_API_KEY": "do-not-forward",
+            "GITHUB_TOKEN": "do-not-forward",
+            "ACTIONS_RUNTIME_TOKEN": "do-not-forward",
+            "PATH": "/usr/bin",
+        }):
+            safe = stripped_env()
+            self.assertEqual(safe["PATH"], "/usr/bin")
+            self.assertNotIn("OPENAI_API_KEY", safe)
+            self.assertNotIn("GITHUB_TOKEN", safe)
+            self.assertNotIn("ACTIONS_RUNTIME_TOKEN", safe)
 
     def test_source_metrics(self):
         self.assertEqual(metrics("pub fn f() void { }\n")["source_lines"], 1)
