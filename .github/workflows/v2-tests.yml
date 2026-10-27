@@ -42,6 +42,7 @@ jobs:
           python3 bench/test_judge.py
           python3 bench/test_run_local_ai.py
           python3 bench/test_aggregate_local_ai.py
+          python3 bench/test_pragmatic.py
           python3 bench/test_run_ai.py
           python3 bench/run_ai.py --dry-run
       - name: Compile and run nine hand-written controls against held-out vectors
