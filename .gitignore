@@ -1,0 +1,8 @@
+bench/generated/
+bench/results/
+results/
+__pycache__/
+*.pyc
+.zig-cache/
+zig-out/
+target/
