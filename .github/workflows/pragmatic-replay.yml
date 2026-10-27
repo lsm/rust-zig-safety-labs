@@ -1,0 +1,50 @@
+name: Pragmatic Zig policy-only replay of frozen 3B candidates
+
+on:
+  push:
+    branches: ["experiment/ai-comparison-v2"]
+    paths:
+      - ".github/workflows/pragmatic-replay.yml"
+      - "bench/replay_pragmatic.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: "0.17.0"
+      - name: Verify index exception and still-blocked unsafe operations
+        run: |
+          python3 bench/test_pragmatic.py
+          python3 tools/test_policy.py
+      - name: Recover exact first-generation AI code from completed 3B run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 40538302771 --repo "${{ github.repository }}" \
+            --pattern "local-ai-shard-*" --dir bench/incoming
+          find bench/incoming -name 'local_ai_shard_*.json' -print
+      - name: Rejudge unchanged generated Zig under checked-index policy
+        run: python3 -u bench/replay_pragmatic.py --input-root bench/incoming
+      - name: Preserve exact measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pragmatic-checked-index-replay
+          path: |
+            bench/results/replay_pragmatic.json
+            bench/results/replay_pragmatic.md
+          retention-days: 30
+          if-no-files-found: warn

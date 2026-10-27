@@ -1,0 +1,60 @@
+name: Round 2 - safe subset and conformance controls
+
+on:
+  push:
+    branches:
+      - "experiment/ai-comparison-v2"
+      - "main"
+    paths:
+      - "bench/**"
+      - "tools/**"
+      - "zig_restricted/**"
+      - ".github/workflows/v2-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  round2-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Zig 0.17.0
+        uses: mlugg/setup-zig@v2
+        with:
+          version: "0.17.0"
+      - name: Record compiler versions
+        run: |
+          zig version
+          rustc --version
+          python3 --version
+      - name: Check strengthened Zig subset, task oracles and judge
+        run: |
+          python3 tools/test_policy.py
+          python3 tools/policy_check.py zig_restricted/app.zig
+          python3 bench/test_reference.py
+          python3 bench/test_judge.py
+          python3 bench/test_run_local_ai.py
+          python3 bench/test_aggregate_local_ai.py
+          python3 bench/test_pragmatic.py
+          python3 bench/test_run_ai.py
+          python3 bench/run_ai.py --dry-run
+      - name: Compile and run nine hand-written controls against held-out vectors
+        run: python3 bench/smoke.py --release-safe
+      - name: Confirm round-one tests still work
+        run: python3 tools/run_experiment.py --dangerous
+      - name: Upload both sets of results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: round2-controls-and-round1-regression
+          path: |
+            bench/results/
+            results/
+          if-no-files-found: warn
