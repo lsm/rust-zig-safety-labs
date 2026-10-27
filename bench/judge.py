@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 from policy_check import check_text  # noqa: E402
 
 MODES = ("zig_plain", "zig_restricted", "rust_safe")
+EXTRA_MODES = ("zig_pragmatic",)
 
 
 def public_prompt(task: dict, mode: str) -> str:
@@ -44,6 +45,17 @@ def public_prompt(task: dict, mode: str) -> str:
             "core.parallelPartitionSum. For other tasks, implement loops and arithmetic in "
             "your own function, respecting the safe-subset policy."
         ),
+        "zig_pragmatic": (
+            "Use practical Zig 0.17.0 with safety checked in both Debug and ReleaseSafe builds. "
+            "Direct slice indexing input[i] is ALLOWED because bounds traps are mandatory. "
+            "No direct allocations/free, pointer casts, pointer dereferences, direct thread creation "
+            "or FFI in application code. Use only std and core.zig imports. "
+            "The audited core.zig offers: "
+            "core.readAt(input, i), core.copySumBounded(input), "
+            "core.parallelPartitionSum(input). "
+            "Use the core to perform actual owned-copy and parallel tasks. "
+            "No disabling runtime safety, no raw pointer escapes."
+        ),
         "rust_safe": "Safe Rust only; no unsafe blocks, FFI, raw pointer dereferences or external crates.",
     }[mode]
     cases = "\n".join(
@@ -64,12 +76,14 @@ def structural_evidence(task_id: str, mode: str, code: str) -> dict:
         pattern = {
             "zig_plain": r"std\s*\.\s*Thread\s*\.\s*spawn",
             "zig_restricted": r"core\s*\.\s*parallelPartitionSum",
+            "zig_pragmatic": r"core\s*\.\s*parallelPartitionSum",
             "rust_safe": r"std\s*::\s*thread\s*::\s*scope",
         }[mode]
     elif task_id == "bounded_copy_sum":
         pattern = {
             "zig_plain": r"\.\s*alloc\s*\(",
             "zig_restricted": r"core\s*\.\s*copySumBounded",
+            "zig_pragmatic": r"core\s*\.\s*copySumBounded",
             "rust_safe": r"\.\s*to_vec\s*\(",
         }[mode]
     else:
@@ -143,14 +157,16 @@ def command(argv: list[str], cwd: Path, timeout: int = 80) -> dict:
 
 def evaluate(mode: str, task_id: str, code: str, work: Path, *,
              vector_limit: int | None = None, release_safe: bool = False) -> dict:
-    if mode not in MODES:
+    if mode not in MODES + EXTRA_MODES:
         raise ValueError(mode)
     work.mkdir(parents=True, exist_ok=True)
     structural = structural_evidence(task_id, mode, code)
     result = {"mode": mode, "task_id": task_id, "metrics": metrics(code),
               "structural_evidence": structural}
-    if mode == "zig_restricted":
-        issues = check_text(code)
+    if mode == "zig_pragmatic" and not release_safe:
+        return {**result, "status": "REQUIRES_RELEASE_SAFE"}
+    if mode in ("zig_restricted", "zig_pragmatic"):
+        issues = check_text(code, allow_indexing=(mode == "zig_pragmatic"))
         if issues:
             return {**result, "status": "POLICY_BLOCKED", "policy_issues": issues}
         (work / "core.zig").write_text((ROOT / "bench" / "core.zig").read_text())

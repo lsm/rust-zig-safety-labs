@@ -52,7 +52,7 @@ def tokenize(source: str) -> list[Token]:
     return out
 
 
-def check_text(source: str) -> list[str]:
+def check_text(source: str, *, allow_indexing: bool = False) -> list[str]:
     tokens = tokenize(source)
     violations: list[tuple[int, str]] = []
     seen: set[tuple[int, str]] = set()
@@ -111,7 +111,7 @@ def check_text(source: str) -> list[str]:
 
         # Indexing expressions prohibited; array type declarations and literals
         # following punctuation (e.g. [64]u8 and [_]u8{1}) are allowed.
-        if value == "[" and prev and (
+        if not allow_indexing and value == "[" and prev and (
             prev.kind == "word" or prev.value in {")", "]", "}"}
         ):
             deny(tok.line, "unchecked_index")
