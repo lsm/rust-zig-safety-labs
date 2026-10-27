@@ -1,0 +1,97 @@
+name: Real offline AI coding trials - Qwen 1.5B (3 arms)
+
+on:
+  push:
+    branches: ["experiment/ai-comparison-v2"]
+    paths:
+      - ".github/workflows/local-ai-trials.yml"
+      - "bench/run_local_ai.py"
+      - "bench/test_run_local_ai.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-ai-benchmark-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ai-trials:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2]
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+      OLLAMA_HOST: "127.0.0.1:11434"
+      OLLAMA_NO_CLOUD: "1"
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+    steps:
+      - name: Checkout without persistent credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install Zig 0.17.0 and print compiler versions
+        uses: mlugg/setup-zig@v2
+        with:
+          version: "0.17.0"
+
+      - name: Install pinned open-source local inference engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fLsS --retry 3 --retry-delay 3 \
+            https://github.com/ollama/ollama/releases/download/v0.40.11/ollama-linux-amd64.tar.zst \
+            -o "${RUNNER_TEMP}/ollama-linux-amd64.tar.zst"
+          echo "7bedab90dd122661be78798e9f0edf37fccf0cccf2699d2c58ea1a3afdc04b6d  ${RUNNER_TEMP}/ollama-linux-amd64.tar.zst" \
+            | sha256sum --check
+          sudo tar -C /usr --use-compress-program=zstd -xf "${RUNNER_TEMP}/ollama-linux-amd64.tar.zst"
+          ollama --version
+          zig version
+          rustc --version
+          python3 --version
+
+      - name: Start local model server and download immutable model version
+        shell: bash
+        run: |
+          set -euo pipefail
+          nohup ollama serve > "${RUNNER_TEMP}/ollama.log" 2>&1 < /dev/null &
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:11434/api/tags >/dev/null; then break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:11434/api/tags >/dev/null
+          ollama pull qwen2.5-coder:1.5b-instruct
+          ollama list
+
+      - name: Verify Python judges and dry-run no fake AI data
+        run: |
+          python3 bench/test_reference.py
+          python3 bench/test_judge.py
+          python3 bench/test_run_ai.py
+          python3 bench/test_run_local_ai.py
+          python3 bench/run_local_ai.py --dry-run --shard "${{ matrix.shard }}" --shards 3 --trials 2
+
+      - name: Generate, compile, test and repair real seeded AI code
+        run: |
+          python3 -u bench/run_local_ai.py \
+            --model qwen2.5-coder:1.5b-instruct \
+            --task-limit 10 --trials 2 --repairs 1 \
+            --shard "${{ matrix.shard }}" --shards 3 --max-tokens 640 --max-calls 60
+
+      - name: Save candidate sources and measured results (even on failure)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-ai-shard-${{ matrix.shard }}
+          path: |
+            bench/results/local_ai_shard_${{ matrix.shard }}.json
+            bench/results/local_ai_shard_${{ matrix.shard }}.md
+            bench/generated_local/shard_${{ matrix.shard }}/
+          if-no-files-found: warn
+          retention-days: 30
