@@ -1,5 +1,20 @@
 # Rust vs Plain Zig vs Restricted Zig — reproducible safety probe
 
+## Round 2 empirical AI coding report (2026-10-27)
+
+The [measured Rust/Zig AI comparison and security-limit report](bench/RESULTS-2026-10-27.md)
+includes 140 genuinely model-generated first drafts, original compilation logs,
+paired 3B results, a frozen-code Zig policy replay, and deterministic Zig
+syntax-fix replays. **Qwen2.5-Coder 3B** got first-pass success in 15/20 safe
+Rust cases, 5/20 plain Zig cases and 5/20 strict restricted Zig cases.
+Cheap version-aware syntax fixes raised frozen plain Zig results from 5/20 to
+9/20 and strict Zig from 5/20 to 7/20; merely allowing checked indexing
+provided no new passing samples. These are small-model results, **not formal
+safety or general readability conclusions**.
+
+All Round 2 code and data stay on branch `experiment/ai-comparison-v2`; the
+main branch remains focused on the original reproducible safety probe.
+
 **Stage:** small, reproducible safety experiment, migrated into its own public GitHub repository on 2026-10-27. Earlier Zig parser problems have been corrected; parser failures do not count as memory-safety findings.
 **Language targets:** Zig 0.17.0, Rust stable (version recorded by CI).
 
