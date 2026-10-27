@@ -1,0 +1,52 @@
+name: Cheap Zig syntax-repair counterfactual on frozen Qwen 3B source
+
+on:
+  push:
+    branches: ["experiment/ai-comparison-v2"]
+    paths:
+      - ".github/workflows/syntax-replay.yml"
+      - "bench/replay_syntax.py"
+      - "bench/zig_syntax_repair.py"
+      - "bench/test_zig_syntax_repair.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify-and-replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: "0.17.0"
+      - name: Test syntax rewrites and core Zig safe-subset gates
+        run: |
+          python3 bench/test_zig_syntax_repair.py
+          python3 bench/test_pragmatic.py
+          python3 tools/test_policy.py
+      - name: Recover exact frozen 3B-generated source (not model replay)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 40538302771 --repo "${{ github.repository }}" \
+            --pattern "local-ai-shard-*" --dir bench/incoming
+      - name: Perform transparent rewrite and real compiler rejudge
+        run: python3 -u bench/replay_syntax.py --input-root bench/incoming
+      - name: Preserve reproducible results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cheap-zig-syntax-migration-results
+          path: |
+            bench/results/replay_syntax.json
+            bench/results/replay_syntax.md
+          retention-days: 30
+          if-no-files-found: warn
