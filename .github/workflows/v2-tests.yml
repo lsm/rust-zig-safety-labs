@@ -40,6 +40,8 @@ jobs:
           python3 tools/policy_check.py zig_restricted/app.zig
           python3 bench/test_reference.py
           python3 bench/test_judge.py
+          python3 bench/test_run_local_ai.py
+          python3 bench/test_aggregate_local_ai.py
           python3 bench/test_run_ai.py
           python3 bench/run_ai.py --dry-run
       - name: Compile and run nine hand-written controls against held-out vectors
