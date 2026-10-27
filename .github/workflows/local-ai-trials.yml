@@ -1,12 +1,6 @@
 name: Real offline AI coding trials - Qwen 3B (3 arms)
 
 on:
-  push:
-    branches: ["experiment/ai-comparison-v2"]
-    paths:
-      - ".github/workflows/local-ai-trials.yml"
-      - "bench/run_local_ai.py"
-      - "bench/test_run_local_ai.py"
   workflow_dispatch:
 
 permissions:

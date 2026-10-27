@@ -38,6 +38,16 @@ SYSTEMS = {
         "Use core.readAt(input, i) orelse 0 for indexed reads and core functions for "
         "copying and parallelism. Looping with for(input) |byte| is also allowed. "
         "Implement pub fn solve, output code only."),
+    "zig_pragmatic": (
+        "LANGUAGE: ZIG 0.17.0 ONLY. Return Zig source, never Rust or C. "
+        "The practical safe subset ALLOWS direct slice indexing input[i] because "
+        "every solution is checked in Debug AND ReleaseSafe with bound traps. "
+        "Do not disable runtime safety. Still NO direct alloc/free, pointer casts, "
+        "pointer dereferencing, FFI or direct thread spawning. "
+        "Use core.copySumBounded and core.parallelPartitionSum for tasks requiring "
+        "real ownership or two actual threads. You may @import(\"core.zig\") "
+        "and use ordinary Zig loops and index arithmetic. "
+        "Implement pub fn solve, output code only."),
     "rust_safe": (
         "LANGUAGE: RUST 2021 ONLY. Return valid Rust code, never Zig or C. "
         "An unrelated syntax example: "
@@ -123,7 +133,7 @@ def repair_feedback(verdict: dict) -> str:
 
 def per_arm(rows: list[dict]) -> dict:
     result = {}
-    for arm in MODES:
+    for arm in tuple(dict.fromkeys([*MODES, *(r["arm"] for r in rows)])):
         entries = [r for r in rows if r["arm"] == arm]
         evaluated = [r for r in entries if r.get("initial") and r.get("final")]
         result[arm] = {
@@ -168,6 +178,7 @@ def persist(shard: int, metadata: dict, rows: list[dict]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default=MODEL_DEFAULT)
+    parser.add_argument("--arms", default="zig_plain,zig_restricted,rust_safe")
     parser.add_argument("--shard", type=int, default=0)
     parser.add_argument("--shards", type=int, default=3)
     parser.add_argument("--trials", type=int, default=2)
@@ -182,19 +193,24 @@ def main() -> int:
             1 <= args.task_limit <= 10 and 80 <= args.max_tokens <= 2000):
         parser.error("invalid experiment bounds")
 
+    selected_arms = tuple(x.strip() for x in args.arms.split(","))
+    if not selected_arms or len(selected_arms) != len(set(selected_arms)) or any(
+            x not in MODES + ("zig_pragmatic",) for x in selected_arms):
+        parser.error("Bad --arms; allowed: " + str(MODES + ("zig_pragmatic",)))
     tasks = [(n, t) for n, t in enumerate(load_suite()["tasks"][:args.task_limit])
              if n % args.shards == args.shard]
     jobs = [(n, task, arm, rep) for n, task in tasks
-            for rep in range(args.trials) for arm in MODES]
+            for rep in range(args.trials) for arm in selected_arms]
     metadata = {
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "model_identity": {"name": args.model}, "backend": "ollama-local-cpu",
-        "generator_system_sha256": {arm: hashlib.sha256(SYSTEMS[arm].encode()).hexdigest() for arm in MODES},
+        "generator_system_sha256": {arm: hashlib.sha256(SYSTEMS[arm].encode()).hexdigest() for arm in selected_arms},
         "temperature": 0.22, "top_p": 0.92, "ctx": 4096,
         "max_output_tokens": args.max_tokens, "shard": args.shard,
         "shards": args.shards, "repeat_count": args.trials,
         "max_calls": args.max_calls, "call_count": 0,
         "planned": len(jobs), "status": "NOT_RUN",
+        "selected_arms": list(selected_arms),
         "methodology": ("Same Qwen model and prompt framework across all arms; "
                         "different seeds; public prompts only; one optional "
                         "compile/policy/structural repair; held-out tests. "
@@ -208,7 +224,7 @@ def main() -> int:
     metadata["model_identity"] = model_identity(args.model)
     rows = []
     for task_idx, task, arm, rep in jobs:
-        seed = 2600000 + 100003 * rep + 97 * task_idx + 1009 * MODES.index(arm)
+        seed = 2600000 + 100003 * rep + 97 * task_idx + 1009 * {"zig_plain": 0, "zig_restricted": 1, "zig_pragmatic": 1, "rust_safe": 2}[arm]
         prompt = public_prompt(task, arm)
         name = task["id"]
         folder = HERE / "generated_local" / f"shard_{args.shard}" / arm / name / f"r{rep}"
